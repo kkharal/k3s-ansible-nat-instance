@@ -1,0 +1,16 @@
+[master]
+%{ for i in range(length(master["ip"])) ~}
+${master["ip"][i]}
+%{ endfor ~}
+[master:vars]
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q ubuntu@${vpn}"'
+[node]
+%{ for i in range(length(worker["ip"])) ~}
+${worker["ip"][i]}
+%{ endfor ~}
+[node:vars]
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -W %h:%p -q ubuntu@${vpn}"'
+
+[k3s_cluster:children]
+master
+node

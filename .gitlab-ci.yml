@@ -1,0 +1,145 @@
+image:
+  name: registry.gitlab.com/gitlab-org/gitlab-build-images:terraform
+  entrypoint:
+    - '/usr/bin/env'
+    - 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+before_script:
+  - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+  - eval $(ssh-agent -s)
+  - chmod 400 "$SSH_PRIVATE_KEY"
+  - ssh-add "$SSH_PRIVATE_KEY"
+  - mkdir -p ~/.ssh
+  - chmod 700 ~/.ssh
+
+variables:
+  TF_VAR_gitlab_token: ${GITLAB_ACCESS_TOKEN}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+
+stages:
+  - "Build Backend"
+  - "Build Infra"
+  - Destroy
+
+
+0. Validate & Plan For Backend: 
+  stage: "Build Backend"
+  script: 
+    - cd ${CI_PROJECT_DIR}/terraforms/backend
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform plan --var-file=../../env.json -out="planfile"
+  when: manual
+  only: 
+    - main
+
+1. Apply Backend:
+  stage: "Build Backend"
+  script: 
+    - terraform apply --var-file=../../env.json -input=false "planfile"
+  when: manual
+  only: 
+    - main  
+
+
+0. Validate & Plan For Infra:  
+  stage: "Build Infra"
+  script: 
+    - cd ${CI_PROJECT_DIR}/terraforms/infra
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform plan --var-file=../../env.json -out="planfile"
+  when: manual
+  only: 
+    - main
+
+1. Apply Infra:
+  stage: "Build Infra"
+  script: 
+    - terraform apply --var-file=../../env.json -input=false "planfile"
+  when: manual
+  only: 
+    - main
+
+2. Apply Addons_VPN:
+  stage: "Build Infra"
+  script:
+    - cd ${CI_PROJECT_DIR}/terraforms/vpn_install
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform plan --var-file=../../env.json -out=planfile
+    - terraform apply --var-file=../../env.json -input=false "planfile"
+  when: manual
+  only: 
+    - main
+
+3. Create k3s Cluster:
+  stage: "Build Infra"
+  script:
+    - cd ${CI_PROJECT_DIR}/terraforms/create_cluster
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform plan --var-file=../../env.json -out=planfile
+    - terraform apply --var-file=../../env.json -input=false "planfile"
+  when: manual
+  only: 
+    - main
+
+4. Apply Addons_Argocd:
+  stage: "Build Infra"
+  script:
+    - cd ${CI_PROJECT_DIR}/terraforms/addons_argocd
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform plan --var-file=../../env.json -out=planfile
+    - terraform apply --var-file=../../env.json -input=false "planfile"
+  when: manual
+  only: 
+    - main
+
+0. Destroy Addons_Argocd:
+  stage: "Destroy"
+  script:
+    - cd ${CI_PROJECT_DIR}/terraforms/addons_argocd
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform destroy -auto-approve -refresh=false
+  when: manual
+  only: 
+    - main
+
+1. Destroy k3s Cluster:
+  stage: "Destroy"
+  script:
+    - cd ${CI_PROJECT_DIR}/terraforms/create_cluster
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform destroy -auto-approve -refresh=false
+  when: manual
+  only: 
+    - main
+
+2. Destroy Addons_VPN:
+  stage: "Destroy"
+  script:
+    - cd ${CI_PROJECT_DIR}/terraforms/vpn_install
+    - terraform init -backend-config=./backend.hcl
+    - terraform validate
+    - terraform destroy -auto-approve -refresh=false
+  when: manual
+  only: 
+    - main
+
+3. Destroy AWS:
+  stage: "Destroy"
+  script:
+    - terraform init -backend-config=./backend.hcl
+    - cd ${CI_PROJECT_DIR}/terraforms/infra
+    - terraform validate
+    - terraform destroy -auto-approve -refresh=false 
+  when: manual
+  only: 
+    - main
+
+
